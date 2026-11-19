@@ -15,8 +15,13 @@ public final class ChartAnalysis {
     public static final class Result {
         public final Candle[] actual, projected;
         public final String report;
+        public final double[] lowBand, highBand;
         Result(Candle[] actual,Candle[] projected,String report) {
+            this(actual,projected,report,null,null);
+        }
+        Result(Candle[] actual,Candle[] projected,String report,double[] lowBand,double[] highBand) {
             this.actual=actual;this.projected=projected;this.report=report;
+            this.lowBand=lowBand;this.highBand=highBand;
         }
     }
     private static double clamp(double x,double min,double max){return Math.max(min,Math.min(max,x));}
@@ -98,7 +103,7 @@ public final class ChartAnalysis {
                 if(Math.max(Math.max(open,high),Math.max(low,close))>=c.size())continue;
                 double o=num(c.get(open)),h=num(c.get(high)),l=num(c.get(low)),cl=num(c.get(close));
                 double v=vol>=0&&vol<c.size()?num(c.get(vol)):Double.NaN;
-                if(!Double.isFinite(o)||!Double.isFinite(h)||!Double.isFinite(l)||!Double.isFinite(cl)||h<Math.max(o,cl)||l>Math.min(o,cl)||h<l)continue;
+                if(!Double.isFinite(o)||!Double.isFinite(h)||!Double.isFinite(l)||!Double.isFinite(cl)||o<=0||h<=0||l<=0||cl<=0||h<Math.max(o,cl)||l>Math.min(o,cl)||h<l)continue;
                 data.add(new Candle(o,h,l,cl,v));
                 if(data.size()>25000)break;
             }catch(Exception ignored){}
@@ -217,9 +222,9 @@ public final class ChartAnalysis {
         Candle[] actual=new Candle[shown];
         for(int i=0;i<shown;i++)actual[i]=data.get(data.size()-shown+i);
         StringBuilder out=new StringBuilder();
-        out.append(real?"OHLCV CSV ANALYSIS":"SCREENSHOT GEOMETRY SCAN");
+        out.append(real?"EXACT OHLCV PRICE INDICATORS":"APPROXIMATE SCREENSHOT GEOMETRY SCAN");
         out.append("\nTimeframe: ").append(tf).append("  ·  future candles: ").append(count).append("\n");
-        out.append("Visual market lean: ").append(bias).append("\n");
+        out.append(real?"EMA/RSI heuristic only: ":"UNVALIDATED SCREENSHOT HEURISTIC: ").append(bias).append("\n");
         out.append("Candles evaluated: ").append(n).append("\n");
         out.append("Detected patterns: ").append(patterns.isEmpty()?"No supported pattern clearly detected":String.join(", ",patterns)).append("\n");
         if(real){
@@ -229,10 +234,15 @@ public final class ChartAnalysis {
             out.append("MACD histogram: ").append(fmt(histogram)).append(" | ATR14: ").append(fmt(a)).append("\n");
             out.append("Bollinger (20,2) upper/lower: ").append(fmt(mean+2*sd)).append(" / ").append(fmt(mean-2*sd)).append("\n");
             out.append("Last close: ").append(fmt(last.close)).append("\n");
-            out.append("\nRows must be oldest to newest. Forecast candles are an illustrative trend/volatility extrapolation, not a tested prediction. No guaranteed targets or probability.");
+            out.append("\nRSI, EMA, MACD, ATR and Bollinger Bands are descriptive features, not proof of price predictability.");
         }else{
             out.append("\nOnly relative pixel heights were extracted. Exact OHLC prices, volume, RSI, MACD, VWAP, and price targets are unavailable from this screenshot.\n");
             out.append("The next-candle sketch reflects detected color/geometry only; it is NOT a calibrated market prediction. For real indicator values use OHLCV CSV.");
+        }
+        if(real){
+            WalkForwardEnsemble.Forecast f=WalkForwardEnsemble.generate(data,count,tf);
+            String report=f.report+"\n\n--- CURRENT INDICATORS ---\n"+out.toString();
+            return new Result(actual,f.candles,report,f.lowBand,f.highBand);
         }
         return new Result(actual,proj.toArray(new Candle[0]),out.toString());
     }
