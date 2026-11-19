@@ -20,6 +20,9 @@ public class MainActivity extends Activity {
     private TextView output;
     private Spinner timeframe, horizon;
     private Bitmap uploaded;
+    private Bitmap originalUploaded;
+    private boolean croppedToPlot=false;
+    private TextView cropButton;
     private byte[] csvBytes;
     private int horizonCount=5;
     private String selectedTimeframe="5 min";
@@ -75,7 +78,7 @@ public class MainActivity extends Activity {
         header.setTypeface(null,1);
         body.addView(header);
         gap(7);
-        body.addView(txt("V3 · Candlestick scan & offline chart-pattern atlas",13,muted));
+        body.addView(txt("V4 · Crop-first chart scan, OHLCV indicators & pattern atlas",13,muted));
         gap(22);
 
         body.addView(txt("1  ·  UPLOAD YOUR CANDLESTICK CHART",15,fg));
@@ -84,7 +87,8 @@ public class MainActivity extends Activity {
         preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
         preview.setBackground(shape(panel,14));
         preview.setMinimumHeight(dp(190));
-        body.addView(preview,new LinearLayout.LayoutParams(-1,dp(190)));
+        body.addView(preview,new LinearLayout.LayoutParams(-1,dp(300)));
+        preview.setOnClickListener(v->{if(originalUploaded!=null)openCropEditor();});
         gap(12);
         TextView upload=button("UPLOAD CHART IMAGE");
         body.addView(upload);
@@ -93,6 +97,12 @@ public class MainActivity extends Activity {
             i.setType("image/*");
             startActivityForResult(Intent.createChooser(i,"Select chart screenshot"),101);
         });
+        gap(10);
+        cropButton=button("CROP / ZOOM CHART AREA");
+        cropButton.setBackground(shape(Color.rgb(23,130,112),13));
+        cropButton.setVisibility(View.GONE);
+        body.addView(cropButton);
+        cropButton.setOnClickListener(v->openCropEditor());
         gap(10);
         TextView importCsv=button("IMPORT OHLCV CSV (REAL INDICATORS)");
         body.addView(importCsv);
@@ -157,6 +167,9 @@ public class MainActivity extends Activity {
                 }
                 csvBytes=bytes.toByteArray();
                 uploaded=null;
+                originalUploaded=null;
+                croppedToPlot=false;
+                cropButton.setVisibility(View.GONE);
                 preview.setImageDrawable(null);
                 resultChart.setVisibility(View.GONE);
                 output.setText("OHLCV CSV loaded: "+csvBytes.length+" bytes. Make sure data runs from oldest to newest. Tap ANALYZE CHART.");
@@ -174,15 +187,39 @@ public class MainActivity extends Activity {
                     if(uploaded!=raw)raw.recycle();
                 }else uploaded=raw;
                 csvBytes=null;
+                originalUploaded=uploaded;
+                croppedToPlot=false;
+                cropButton.setVisibility(View.VISIBLE);
                 preview.setImageBitmap(uploaded);
+                LinearLayout.LayoutParams previewParams=(LinearLayout.LayoutParams)preview.getLayoutParams();
+                previewParams.height=dp(365);
+                preview.setLayoutParams(previewParams);
                 resultChart.setVisibility(View.GONE);
-                output.setText("Chart uploaded successfully. Select candle count and timeframe, then tap ANALYZE CHART.");
+                output.setText("Image uploaded. Tap CROP / ZOOM CHART AREA and select only the candle plot (exclude toolbar, price labels and volume histogram), then analyze.");
             }catch(Exception e){
                 output.setText("Unable to load image: "+e.getMessage());
             }
         }
     }
+    private void openCropEditor(){
+        if(originalUploaded==null)return;
+        ChartCropEditor.show(this,originalUploaded,cropped->{
+            uploaded=cropped;
+            croppedToPlot=true;
+            preview.setImageBitmap(cropped);
+            LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)preview.getLayoutParams();
+            lp.height=dp(310);
+            preview.setLayoutParams(lp);
+            output.setText("Selected chart area is ready. Tap ANALYZE CHART. Touch the image to crop again.");
+            resultChart.setVisibility(View.GONE);
+        });
+    }
     private void analyze(){
+        if(uploaded!=null && !croppedToPlot && csvBytes==null){
+            output.setText("Crop the screenshot to the actual candle plot before analysis. It prevents volume bars and UI elements from being mistaken for candles.");
+            openCropEditor();
+            return;
+        }
         if(uploaded==null&&csvBytes==null){
             output.setText("Upload a chart screenshot or import chronological OHLCV CSV first.");
             return;
@@ -252,8 +289,8 @@ public class MainActivity extends Activity {
             canvas.drawLine(divider,top,divider,top+ch,paint);
             paint.setColor(Color.rgb(214,223,238));
             paint.setTextSize(dp(11));
-            canvas.drawText("Detected history",left,height-dp(11),paint);
-            canvas.drawText("Scenario (not prediction)",Math.min(divider+dp(4),width-dp(145)),height-dp(11),paint);
+            canvas.drawText("Approx. extracted candles",left,height-dp(11),paint);
+            canvas.drawText("Unvalidated scenario",Math.min(divider+dp(4),width-dp(145)),height-dp(11),paint);
         }
     }
 }
