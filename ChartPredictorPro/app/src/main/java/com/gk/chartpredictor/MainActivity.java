@@ -27,6 +27,7 @@ public class MainActivity extends Activity {
     private int horizonCount=5;
     private String selectedTimeframe="5 min";
     private ForecastChart resultChart;
+    private boolean analysisRunning=false;
 
     private int dp(float x){ return (int)(x*getResources().getDisplayMetrics().density+0.5f); }
     private GradientDrawable shape(int color,int radius){
@@ -78,7 +79,7 @@ public class MainActivity extends Activity {
         header.setTypeface(null,1);
         body.addView(header);
         gap(7);
-        body.addView(txt("V4 · Crop-first chart scan, OHLCV indicators & pattern atlas",13,muted));
+        body.addView(txt("V5 · Offline walk-forward ensemble · chart crop · pattern atlas",13,muted));
         gap(22);
 
         body.addView(txt("1  ·  UPLOAD YOUR CANDLESTICK CHART",15,fg));
@@ -142,7 +143,7 @@ public class MainActivity extends Activity {
         resultChart=new ForecastChart();
         resultChart.setBackground(shape(panel,14));
         resultChart.setVisibility(View.GONE);
-        body.addView(resultChart,new LinearLayout.LayoutParams(-1,dp(206)));
+        body.addView(resultChart,new LinearLayout.LayoutParams(-1,dp(310)));
         gap(14);
 
         body.addView(txt("4  ·  OFFLINE PATTERN REFERENCE",15,fg));
@@ -153,7 +154,7 @@ public class MainActivity extends Activity {
         gap(13);
         body.addView(txt("All pattern illustrations are original and synthetic. Learn how setups look before using them on actual OHLCV charts.",13,muted));
         gap(22);
-        body.addView(txt("Research prototype only. The diagram is illustrative, NOT a validated price forecast or trading signal. Real indicators and patterns require OHLCV history, backtesting, and market validation.",12,muted));
+        body.addView(txt("Forecast engine: causal momentum, AR(2), historical analog kNN, mean reversion and breakout methods. Individual model weights come from earlier chronological validation; a later holdout tests the blend. Without verified OHLCV, screenshot-only scenarios are experimental. No guaranteed trading profits.",12,muted));
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
@@ -215,6 +216,7 @@ public class MainActivity extends Activity {
         });
     }
     private void analyze(){
+        if(analysisRunning)return;
         if(uploaded!=null && !croppedToPlot && csvBytes==null){
             output.setText("Crop the screenshot to the actual candle plot before analysis. It prevents volume bars and UI elements from being mistaken for candles.");
             openCropEditor();
@@ -227,17 +229,33 @@ public class MainActivity extends Activity {
         String selected=horizon.getSelectedItem().toString();
         horizonCount=Integer.parseInt(selected.split(" ")[0]);
         selectedTimeframe=timeframe.getSelectedItem().toString();
-        try{
-            ChartAnalysis.Result result=csvBytes==null?
-                    ChartAnalysis.fromImage(uploaded,horizonCount,selectedTimeframe):
-                    ChartAnalysis.fromCsv(new java.io.ByteArrayInputStream(csvBytes),horizonCount,selectedTimeframe);
-            output.setText(result.report);
-            resultChart.setResult(result);
-            resultChart.setVisibility(View.VISIBLE);
-        }catch(Exception e){
-            output.setText("Analysis unavailable: "+e.getMessage()+"\n\nTry a tighter chart crop or import OHLCV CSV.");
-            resultChart.setVisibility(View.GONE);
-        }
+        final int targetCount=horizonCount;
+        final String frame=selectedTimeframe;
+        final Bitmap img=uploaded;
+        final byte[] file=csvBytes;
+        analysisRunning=true;
+        output.setText("Calculating "+targetCount+"-candle scenarios and evaluating model error against later historical candles. This may take a moment...");
+        resultChart.setVisibility(View.GONE);
+        new Thread(()->{
+            try{
+                ChartAnalysis.Result r=file==null?
+                        ChartAnalysis.fromImage(img,targetCount,frame):
+                        ChartAnalysis.fromCsv(new java.io.ByteArrayInputStream(file),targetCount,frame);
+                runOnUiThread(()->{
+                    analysisRunning=false;
+                    output.setText(r.report);
+                    resultChart.setResult(r);
+                    resultChart.setVisibility(View.VISIBLE);
+                });
+            }catch(Exception e){
+                final String message=e.getMessage();
+                runOnUiThread(()->{
+                    analysisRunning=false;
+                    output.setText("Analysis unavailable: "+message+"\n\nTry a tighter screenshot crop or import a chronological OHLCV CSV with sufficient history.");
+                    resultChart.setVisibility(View.GONE);
+                });
+            }
+        }).start();
     }
     private class ForecastChart extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -263,10 +281,43 @@ public class MainActivity extends Activity {
                 lo=Math.min(lo,actual[i].low);hi=Math.max(hi,actual[i].high);
             }
             for(ChartAnalysis.Candle c:future){lo=Math.min(lo,c.low);hi=Math.max(hi,c.high);}
+            boolean hasBands=result.lowBand!=null&&result.highBand!=null
+                    &&result.lowBand.length==future.length&&result.highBand.length==future.length;
+            if(hasBands)for(int i=0;i<future.length;i++){
+                lo=Math.min(lo,result.lowBand[i]);hi=Math.max(hi,result.highBand[i]);
+            }
             double span=Math.max(.000001,hi-lo);
             lo-=span*.12;hi+=span*.12;
             span=hi-lo;
             float pitch=cw/total,barWidth=Math.max(dp(2),Math.min(dp(11),pitch*.64f));
+            if(hasBands){
+                Path region=new Path();
+                for(int i=0;i<future.length;i++){
+                    float x=left+pitch*(hist+i+.5f);
+                    float y=top+(float)((hi-result.highBand[i])/span)*ch;
+                    if(i==0)region.moveTo(x,y);else region.lineTo(x,y);
+                }
+                for(int i=future.length-1;i>=0;i--){
+                    float x=left+pitch*(hist+i+.5f);
+                    float y=top+(float)((hi-result.lowBand[i])/span)*ch;
+                    region.lineTo(x,y);
+                }
+                region.close();
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.argb(48,66,149,245));
+                canvas.drawPath(region,paint);
+                paint.setColor(Color.rgb(106,175,247));
+                paint.setStrokeWidth(dp(1.2f));
+                for(int i=1;i<future.length;i++){
+                    float xa=left+pitch*(hist+i-.5f),xb=left+pitch*(hist+i+.5f);
+                    float yu0=top+(float)((hi-result.highBand[i-1])/span)*ch;
+                    float yu1=top+(float)((hi-result.highBand[i])/span)*ch;
+                    float yl0=top+(float)((hi-result.lowBand[i-1])/span)*ch;
+                    float yl1=top+(float)((hi-result.lowBand[i])/span)*ch;
+                    canvas.drawLine(xa,yu0,xb,yu1,paint);
+                    canvas.drawLine(xa,yl0,xb,yl1,paint);
+                }
+            }
             for(int i=0;i<total;i++){
                 boolean projected=i>=hist;
                 ChartAnalysis.Candle c=projected?future[i-hist]:actual[actual.length-hist+i];
@@ -289,8 +340,8 @@ public class MainActivity extends Activity {
             canvas.drawLine(divider,top,divider,top+ch,paint);
             paint.setColor(Color.rgb(214,223,238));
             paint.setTextSize(dp(11));
-            canvas.drawText("Approx. extracted candles",left,height-dp(11),paint);
-            canvas.drawText("Unvalidated scenario",Math.min(divider+dp(4),width-dp(145)),height-dp(11),paint);
+            canvas.drawText(hasBands?"OHLCV history":"Approx. screenshot candles",left,height-dp(11),paint);
+            canvas.drawText(hasBands?"Estimate + error band":"Unvalidated image sketch",Math.min(divider+dp(4),width-dp(160)),height-dp(11),paint);
         }
     }
 }
