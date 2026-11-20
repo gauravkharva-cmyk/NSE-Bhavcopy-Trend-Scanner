@@ -234,7 +234,10 @@ final class WalkForwardEnsemble {
         int top=0;for(int i=1;i<M;i++)if(weight[i]>weight[top])top=i;
         e.topModel=MODELS[top];
 
-        int testStart=valEnd+1,testEnd=latest,testN=0,correct=0,nonzero=0;
+        // Purge a full horizon between validation labels and the later holdout.
+        // Otherwise the last validation outcome at valEnd+h could use prices
+        // from inside the first holdout prediction window.
+        int testStart=valEnd+horizon+1,testEnd=latest,testN=0,correct=0,nonzero=0;
         double totalMae=0,baseMae=0;
         double[] err=new double[holdout+4];
         for(int t=testStart;t<=testEnd;t++){
@@ -303,7 +306,7 @@ final class WalkForwardEnsemble {
             .append(" candles (").append(timeframe).append(")\n");
         report.append("Historical price candles: ").append(n).append(" (CSV input)\n");
         report.append("Model family: no-change, momentum, AR(2), analog kNN, EMA reversion, breakout.\n");
-        report.append("Selection: strictly chronological validation; later walk-forward test.\n\n");
+        report.append("Selection: chronological validation, purged horizon gap, then later walk-forward holdout.\n\n");
         if(insufficient>0){
             report.append("INSUFFICIENT HISTORY FOR VALIDATED FORECAST. ")
                 .append("At least ~").append(175+count).append(" chronological candles recommended. ")
