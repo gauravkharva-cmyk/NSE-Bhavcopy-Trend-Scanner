@@ -121,54 +121,103 @@ public final class ChartAnalysis {
         int r=Color.red(pix),g=Color.green(pix),b=Color.blue(pix);
         return r>105&&r>g*1.25&&r>b*1.13;
     }
+    /**
+     * A conservative screenshot trace, not a trading forecast.
+     * A crop contains visual evidence only: the price scale, time sampling,
+     * volume, missing candles, and adjusted history cannot be validated.
+     * We therefore visualize candidate candles but do NOT generate projected candles.
+     */
     public static Result fromImage(Bitmap image,int count,String tf)throws Exception{
         if(image==null)throw new Exception("No screenshot selected.");
-        int w=600,h=Math.max(230,Math.round(image.getHeight()*(600f/image.getWidth())));
-        h=Math.min(760,h);
+        int w=720;
+        int h=Math.max(210,Math.round(image.getHeight()*(720f/image.getWidth())));
+        h=Math.min(1200,h);
         Bitmap scaled=Bitmap.createScaledBitmap(image,w,h,true);
-        int y0=(int)(h*.13),y1=(int)(h*.76);
-        int[] pixels=new int[w*h];scaled.getPixels(pixels,0,w,0,0,w,h);
-        int[] hits=new int[w],colorHits=new int[w];
-        for(int x=10;x<w-10;x++){
+        int y0=Math.max(2,(int)(h*.025)),y1=Math.min(h-2,(int)(h*.975));
+        int[] pixels=new int[w*h];
+        scaled.getPixels(pixels,0,w,0,0,w,h);
+        int[] hits=new int[w],greens=new int[w],reds=new int[w];
+        for(int x=5;x<w-5;x++){
             for(int y=y0;y<y1;y++){
-                int p=pixels[y*w+x];if(green(p)){hits[x]++;colorHits[x]++;}
-                else if(red(p)){hits[x]++;colorHits[x]--;}
+                int p=pixels[y*w+x];
+                if(green(p)){hits[x]++;greens[x]++;}
+                else if(red(p)){hits[x]++;reds[x]++;}
             }
         }
         ArrayList<Candle> candles=new ArrayList<>();
-        int x=12;
-        while(x<w-12){
+        int used=0,skipped=0;
+        int x=5;
+        while(x<w-5){
             if(hits[x]<3){x++;continue;}
-            int s=x,e=x;
-            while(e+1<w-12&&hits[e+1]>=2&&(e-s)<36)e++;
-            if(e-s<1||e-s>31){x=e+1;continue;}
-            int g=0,r=0,rowHits[]=new int[y1-y0];
-            int minY=y1,maxY=y0;
-            for(int xx=s;xx<=e;xx++)for(int yy=y0;yy<y1;yy++){
-                int p=pixels[yy*w+xx];boolean isG=green(p),isR=red(p);
-                if(isG||isR){
-                    if(isG)g++;else r++;
-                    rowHits[yy-y0]++;minY=Math.min(minY,yy);maxY=Math.max(maxY,yy);
+            int start=x,end=x;
+            while(end+1<w-5&&hits[end+1]>=2&&end-start<48)end++;
+            // Avoid merging separate candles that may be rendered without empty
+            // columns. Over-wide segments are considered ambiguous and rejected.
+            int width=end-start+1;
+            if(width<2||width>38){skipped++;x=end+1;continue;}
+            int g=0,r=0,minY=y1,maxY=y0;
+            int[] counts=new int[y1-y0];
+            for(int xx=start;xx<=end;xx++){
+                for(int yy=y0;yy<y1;yy++){
+                    int color=pixels[yy*w+xx];
+                    boolean isG=green(color),isR=red(color);
+                    if(isG||isR){
+                        if(isG)g++;else r++;
+                        counts[yy-y0]++;
+                        minY=Math.min(minY,yy);
+                        maxY=Math.max(maxY,yy);
+                    }
                 }
             }
-            if(g+r>=8&&Math.max(g,r)>.65*(g+r)&&maxY>minY){
-                int peak=0;for(int n:rowHits)peak=Math.max(peak,n);
-                int top=maxY,bottom=minY;
-                for(int i=0;i<rowHits.length;i++)if(rowHits[i]>=Math.max(2,peak*.55)){
-                    top=Math.min(top,y0+i);bottom=Math.max(bottom,y0+i);
-                }
-                if(bottom>=top){
-                    double highVal=y1-minY,lowVal=y1-maxY;
-                    double a=y1-bottom,b=y1-top;
-                    boolean up=g>r;
-                    candles.add(new Candle(up?a:b,highVal,lowVal,up?b:a,Double.NaN));
+            int total=g+r;
+            if(total<10||Math.max(g,r)<total*.82||maxY-minY<3){
+                skipped++;x=end+1;continue;
+            }
+            int peak=0;for(int row:counts)peak=Math.max(peak,row);
+            if(peak<2){skipped++;x=end+1;continue;}
+            // Body rows are broad relative to wick rows.
+            int topBody=y1,bottomBody=y0;
+            int bodyThreshold=Math.max(2,(int)Math.ceil(.55*peak));
+            for(int yy=y0;yy<y1;yy++){
+                if(counts[yy-y0]>=bodyThreshold){
+                    topBody=Math.min(topBody,yy);
+                    bottomBody=Math.max(bottomBody,yy);
                 }
             }
-            x=e+1;
+            if(topBody>bottomBody){skipped++;x=end+1;continue;}
+            double hi=y1-minY,lo=y1-maxY;
+            double open,close;
+            if(g>r){open=y1-bottomBody;close=y1-topBody;}
+            else {open=y1-topBody;close=y1-bottomBody;}
+            if(hi<Math.max(open,close)||lo>Math.min(open,close)){
+                skipped++;x=end+1;continue;
+            }
+            candles.add(new Candle(open,hi,lo,close,Double.NaN));
+            used++;
+            x=end+1;
         }
-        if(candles.size()<20)throw new Exception("Only "+candles.size()+" distinct candidate candles found. Crop the image to the candle area or import OHLC CSV for accurate analysis.");
-        if(candles.size()>100)candles=new ArrayList<>(candles.subList(candles.size()-100,candles.size()));
-        return calculate(candles,count,tf,false);
+        if(candles.size()<8){
+            throw new Exception("Detected only "+candles.size()+" candidate candles. Try cropping just the price plot. The source may use other candle colors or compress the candles too much.");
+        }
+        if(candles.size()>100){
+            candles=new ArrayList<>(candles.subList(candles.size()-100,candles.size()));
+        }
+        Candle[] history=candles.toArray(new Candle[0]);
+        StringBuilder message=new StringBuilder();
+        message.append("SCREENSHOT EXTRACTION — NOT A PRICE FORECAST\n");
+        message.append("Timeframe selected: ").append(tf).append("\n");
+        message.append("Requested forecast horizon: ").append(count).append(" candles\n");
+        message.append("Approximate candle candidates: ").append(used).append(" (").append(skipped).append(" ambiguous color regions rejected)\n\n");
+        if(used<50){
+            message.append("LOW DATA QUALITY: fewer than 50 candidate candles extracted. Chart patterns such as engulfing, inside bars or double bottoms are NOT verified.\n\n");
+        }else{
+            message.append("Only shape/color candidates are displayed. Similar colors, moving averages, wicks, overlays or incomplete bars may produce extraction errors.\n\n");
+        }
+        message.append("A screenshot does not provide independently verified OHLCV prices or a sufficiently reliable backtesting dataset. ");
+        message.append("The application is intentionally WITHHOLDING the next-").append(count).append("-candle forecast instead of drawing invented candles.\n\n");
+        message.append("To run the adaptive walk-forward ensemble, tap IMPORT OHLCV CSV, containing Open, High, Low, Close and preferably Volume for the SAME instrument and ").append(tf).append(" timeframe. ");
+        message.append("Include approximately 200 or more chronologically ordered candles (oldest first). The CSV forecast will show tested error and a range; it cannot guarantee future prices.");
+        return new Result(history,new Candle[0],message.toString());
     }
     private static Result calculate(List<Candle> data,int count,String tf,boolean real){
         int n=data.size();Candle last=data.get(n-1),prev=data.get(n-2);
