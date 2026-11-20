@@ -113,6 +113,14 @@ public class MainActivity extends Activity {
             i.addCategory(Intent.CATEGORY_OPENABLE);
             startActivityForResult(Intent.createChooser(i,"Select candle CSV (oldest row first)"),102);
         });
+        gap(10);
+        TextView csvHelp=button("CSV FILE FORMAT / HELP");
+        csvHelp.setBackground(shape(Color.rgb(36,54,81),13));
+        body.addView(csvHelp);
+        csvHelp.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
+            .setTitle("OHLCV candle data — required for price forecasts")
+            .setMessage("Export candle history for ONE instrument from your trading/data platform. The file must have columns Open, High, Low, Close and preferably Volume.\n\nExample:\nOpen,High,Low,Close,Volume\n240.20,242.10,239.80,241.50,12500\n241.50,244.00,240.60,243.20,13200\n\nPut the OLDEST candles first. Choose the same timeframe in this app as the CSV candles actually represent. Do not mix timeframes, strikes, split-adjustment conventions or instruments.\n\nAim for 200+ contiguous candles. This is an uncertainty-aware research model, not a guaranteed trade signal.")
+            .setPositiveButton("Close",null).show());
         gap(21);
 
         body.addView(txt("2  ·  SELECT FUTURE CANDLES",15,fg));
