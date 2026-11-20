@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         header.setTypeface(null,1);
         body.addView(header);
         gap(7);
-        body.addView(txt("V5 · Offline walk-forward ensemble · chart crop · pattern atlas",13,muted));
+        body.addView(txt("V6 · Screenshot quality check · OHLCV forecasting · pattern atlas",13,muted));
         gap(22);
 
         body.addView(txt("1  ·  UPLOAD YOUR CANDLESTICK CHART",15,fg));
@@ -134,7 +134,7 @@ public class MainActivity extends Activity {
         analyze.setOnClickListener(v->analyze());
         gap(18);
 
-        output=txt("Choose a candlestick screenshot, your forecast candle count, and timeframe. This prototype evaluates chart image colors; it does not infer exact market prices.",14,muted);
+        output=txt("For a forecast: import chronological OHLCV CSV, select candle count and timeframe, and tap ANALYZE. Screenshots are used only for approximate visual extraction, not a calibrated prediction.",14,muted);
         output.setPadding(dp(16),dp(16),dp(16),dp(16));
         output.setBackground(shape(panel,13));
         body.addView(output);
@@ -154,7 +154,7 @@ public class MainActivity extends Activity {
         gap(13);
         body.addView(txt("All pattern illustrations are original and synthetic. Learn how setups look before using them on actual OHLCV charts.",13,muted));
         gap(22);
-        body.addView(txt("Forecast engine: causal momentum, AR(2), historical analog kNN, mean reversion and breakout methods. Individual model weights come from earlier chronological validation; a later holdout tests the blend. Without verified OHLCV, screenshot-only scenarios are experimental. No guaranteed trading profits.",12,muted));
+        body.addView(txt("Advanced forecasts require historical OHLCV CSV. Screenshot-only mode traces visible candles but does not invent price predictions. Offline ensemble methods compare errors against a no-change baseline using chronological tests. No forecast guarantees profits.",12,muted));
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
@@ -341,7 +341,8 @@ public class MainActivity extends Activity {
             paint.setColor(Color.rgb(214,223,238));
             paint.setTextSize(dp(11));
             canvas.drawText(hasBands?"OHLCV history":"Approx. screenshot candles",left,height-dp(11),paint);
-            canvas.drawText(hasBands?"Estimate + error band":"Unvalidated image sketch",Math.min(divider+dp(4),width-dp(160)),height-dp(11),paint);
+            if(future.length==0)canvas.drawText("No forecast — CSV required",Math.max(left,width-dp(175)),height-dp(11),paint);
+            else canvas.drawText(hasBands?"Estimate + error band":"Unvalidated image sketch",Math.min(divider+dp(4),width-dp(160)),height-dp(11),paint);
         }
     }
 }
