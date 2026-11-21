@@ -29,6 +29,7 @@ public class MainActivity extends Activity {
     private ForecastChart resultChart;
     private boolean analysisRunning=false;
     private CheckBox screenshotGuess;
+    private CheckBox levelsToggle;
 
     private int dp(float x){ return (int)(x*getResources().getDisplayMetrics().density+0.5f); }
     private GradientDrawable shape(int color,int radius){
@@ -80,7 +81,7 @@ public class MainActivity extends Activity {
         header.setTypeface(null,1);
         body.addView(header);
         gap(7);
-        body.addView(txt("V7 · Screenshot chart scenarios · OHLCV forecasting · pattern atlas",13,muted));
+        body.addView(txt("V8 · Analog scenarios · Support / Resistance levels · OHLCV ensemble",13,muted));
         gap(22);
 
         body.addView(txt("1  ·  UPLOAD YOUR CANDLESTICK CHART",15,fg));
@@ -163,7 +164,16 @@ public class MainActivity extends Activity {
         resultChart=new ForecastChart();
         resultChart.setBackground(shape(panel,14));
         resultChart.setVisibility(View.GONE);
-        body.addView(resultChart,new LinearLayout.LayoutParams(-1,dp(310)));
+        body.addView(resultChart,new LinearLayout.LayoutParams(-1,dp(410)));
+        gap(9);
+        levelsToggle=new CheckBox(this);
+        levelsToggle.setText("Display support / resistance and level scale");
+        levelsToggle.setTextSize(14);
+        levelsToggle.setTextColor(Color.WHITE);
+        levelsToggle.setButtonTintList(android.content.res.ColorStateList.valueOf(green));
+        levelsToggle.setChecked(true);
+        body.addView(levelsToggle);
+        levelsToggle.setOnCheckedChangeListener((button,isChecked)->resultChart.setShowLevels(isChecked));
         gap(14);
 
         body.addView(txt("5  ·  OFFLINE PATTERN REFERENCE",15,fg));
@@ -281,90 +291,169 @@ public class MainActivity extends Activity {
     private class ForecastChart extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private ChartAnalysis.Result result;
+        private boolean showLevels=true;
         ForecastChart(){ super(MainActivity.this); }
         void setResult(ChartAnalysis.Result r){result=r;invalidate();}
+        void setShowLevels(boolean v){showLevels=v;invalidate();}
+        private String level(double v, boolean image){
+            if(!Double.isFinite(v))return "N/A";
+            String n=String.format(java.util.Locale.US,
+                    Math.abs(v)>=1000?"%.1f":"%.2f",v);
+            return image?"rel "+n:n;
+        }
+        private void textAt(Canvas c,String value,float x,float y,int color,int size){
+            paint.setStyle(Paint.Style.FILL);
+            paint.setAlpha(255);
+            paint.setColor(color);
+            paint.setTextSize(dp(size));
+            c.drawText(value,x,y,paint);
+        }
+        private float valueY(double level,double topValue,double totalSpan,float top,float height){
+            return top+(float)((topValue-level)/totalSpan)*height;
+        }
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
-            if(result==null)return;
+            if(result==null||result.actual==null||result.actual.length==0)return;
             float width=getWidth(),height=getHeight();
-            float left=dp(14),top=dp(18),cw=width-dp(28),ch=height-dp(54);
-            paint.setStrokeWidth(dp(1));
-            paint.setColor(Color.rgb(52,67,91));
-            for(int i=0;i<5;i++){
-                float y=top+(ch/4)*i;
-                canvas.drawLine(left,y,width-left,y,paint);
-            }
-            ChartAnalysis.Candle[] actual=result.actual, future=result.projected;
+            boolean image=result.report.startsWith("SCREENSHOT");
+            float left=showLevels?dp(91):dp(15),top=dp(26);
+            float right=width-dp(15);
+            float ch=height-dp(showLevels?128:59)-top;
+            float cw=Math.max(1,right-left);
+            ChartAnalysis.Candle[] actual=result.actual,future=result.projected;
             int hist=Math.min(actual.length,Math.max(18,45-future.length/2));
             int total=hist+future.length;
-            double lo=Double.POSITIVE_INFINITY,hi=Double.NEGATIVE_INFINITY;
+            if(total<=0)return;
+            double lowValue=Double.POSITIVE_INFINITY,highValue=Double.NEGATIVE_INFINITY;
             for(int i=actual.length-hist;i<actual.length;i++){
-                lo=Math.min(lo,actual[i].low);hi=Math.max(hi,actual[i].high);
+                lowValue=Math.min(lowValue,actual[i].low);
+                highValue=Math.max(highValue,actual[i].high);
             }
-            for(ChartAnalysis.Candle c:future){lo=Math.min(lo,c.low);hi=Math.max(hi,c.high);}
+            for(ChartAnalysis.Candle c:future){
+                lowValue=Math.min(lowValue,c.low);highValue=Math.max(highValue,c.high);
+            }
             boolean hasBands=result.lowBand!=null&&result.highBand!=null
                     &&result.lowBand.length==future.length&&result.highBand.length==future.length;
             if(hasBands)for(int i=0;i<future.length;i++){
-                lo=Math.min(lo,result.lowBand[i]);hi=Math.max(hi,result.highBand[i]);
+                lowValue=Math.min(lowValue,result.lowBand[i]);
+                highValue=Math.max(highValue,result.highBand[i]);
             }
-            double span=Math.max(.000001,hi-lo);
-            lo-=span*.12;hi+=span*.12;
-            span=hi-lo;
-            float pitch=cw/total,barWidth=Math.max(dp(2),Math.min(dp(11),pitch*.64f));
-            if(hasBands){
+            double range=Math.max(.000001,highValue-lowValue);
+            lowValue-=range*.10;highValue+=range*.10;
+            range=highValue-lowValue;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(.7f));
+            for(int i=0;i<=4;i++){
+                float y=top+(ch/4)*i;
+                paint.setColor(Color.rgb(51,72,96));
+                canvas.drawLine(left,y,right,y,paint);
+                if(showLevels)textAt(canvas,level(highValue-i*range/4,image),
+                        dp(4),y+dp(4),Color.rgb(148,169,195),10);
+            }
+            float pitch=cw/total;
+            float barWidth=Math.max(dp(1.5f),Math.min(dp(11),pitch*.60f));
+
+            if(hasBands&&future.length>0){
                 Path region=new Path();
                 for(int i=0;i<future.length;i++){
                     float x=left+pitch*(hist+i+.5f);
-                    float y=top+(float)((hi-result.highBand[i])/span)*ch;
+                    float y=valueY(result.highBand[i],highValue,range,top,ch);
                     if(i==0)region.moveTo(x,y);else region.lineTo(x,y);
                 }
                 for(int i=future.length-1;i>=0;i--){
                     float x=left+pitch*(hist+i+.5f);
-                    float y=top+(float)((hi-result.lowBand[i])/span)*ch;
+                    float y=valueY(result.lowBand[i],highValue,range,top,ch);
                     region.lineTo(x,y);
                 }
                 region.close();
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(Color.argb(48,66,149,245));
+                paint.setColor(Color.argb(49,67,151,242));
                 canvas.drawPath(region,paint);
-                paint.setColor(Color.rgb(106,175,247));
-                paint.setStrokeWidth(dp(1.2f));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setColor(Color.rgb(111,176,245));
+                paint.setStrokeWidth(dp(1.1f));
                 for(int i=1;i<future.length;i++){
                     float xa=left+pitch*(hist+i-.5f),xb=left+pitch*(hist+i+.5f);
-                    float yu0=top+(float)((hi-result.highBand[i-1])/span)*ch;
-                    float yu1=top+(float)((hi-result.highBand[i])/span)*ch;
-                    float yl0=top+(float)((hi-result.lowBand[i-1])/span)*ch;
-                    float yl1=top+(float)((hi-result.lowBand[i])/span)*ch;
-                    canvas.drawLine(xa,yu0,xb,yu1,paint);
-                    canvas.drawLine(xa,yl0,xb,yl1,paint);
+                    canvas.drawLine(xa,valueY(result.highBand[i-1],highValue,range,top,ch),
+                            xb,valueY(result.highBand[i],highValue,range,top,ch),paint);
+                    canvas.drawLine(xa,valueY(result.lowBand[i-1],highValue,range,top,ch),
+                            xb,valueY(result.lowBand[i],highValue,range,top,ch),paint);
                 }
             }
+
+            if(showLevels){
+                int lookback=Math.min(20,actual.length);
+                double support=Double.POSITIVE_INFINITY,resistance=Double.NEGATIVE_INFINITY;
+                for(int i=actual.length-lookback;i<actual.length;i++){
+                    support=Math.min(support,actual[i].low);
+                    resistance=Math.max(resistance,actual[i].high);
+                }
+                double last=actual[actual.length-1].close;
+                double[] levels={resistance,last,support};
+                int[] colors={
+                    Color.rgb(246,121,133),Color.rgb(251,211,97),Color.rgb(54,218,164)
+                };
+                for(int i=0;i<levels.length;i++){
+                    float y=valueY(levels[i],highValue,range,top,ch);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(dp(i==1?1.5f:1));
+                    paint.setColor(colors[i]);
+                    paint.setAlpha(i==1?220:145);
+                    canvas.drawLine(left,y,right,y,paint);
+                    paint.setAlpha(255);
+                    // Separate band below chart prevents overlapping candle bodies.
+                }
+                float baseline=height-dp(77);
+                textAt(canvas,image?"RELATIVE LEVELS (NOT PRICES)":"PRICE LEVELS",left,baseline,
+                        Color.rgb(188,208,232),11);
+                textAt(canvas,"R "+level(resistance,image),left,baseline+dp(21),
+                        colors[0],11);
+                float secondX=left+Math.min(dp(140),cw*.42f);
+                textAt(canvas,"LAST "+level(last,image),secondX,baseline+dp(21),
+                        colors[1],11);
+                textAt(canvas,"S "+level(support,image),left,baseline+dp(42),
+                        colors[2],11);
+                if(future.length>0){
+                    ChartAnalysis.Candle endpoint=future[future.length-1];
+                    textAt(canvas,"END "+level(endpoint.close,image),secondX,baseline+dp(42),
+                            Color.rgb(123,182,247),11);
+                }
+            }
+
             for(int i=0;i<total;i++){
                 boolean projected=i>=hist;
                 ChartAnalysis.Candle c=projected?future[i-hist]:actual[actual.length-hist+i];
                 float x=left+pitch*(i+.5f);
-                float yOpen=top+(float)((hi-c.open)/span)*ch;
-                float yClose=top+(float)((hi-c.close)/span)*ch;
-                float yHigh=top+(float)((hi-c.high)/span)*ch;
-                float yLow=top+(float)((hi-c.low)/span)*ch;
+                float yo=valueY(c.open,highValue,range,top,ch);
+                float yc=valueY(c.close,highValue,range,top,ch);
+                float yh=valueY(c.high,highValue,range,top,ch);
+                float yl=valueY(c.low,highValue,range,top,ch);
+                paint.setStyle(Paint.Style.FILL);
                 paint.setColor(c.close>=c.open?Color.rgb(35,207,139):Color.rgb(244,91,105));
-                paint.setAlpha(projected?135:255);
-                paint.setStrokeWidth(dp(1.5f));
-                canvas.drawLine(x,yHigh,x,yLow,paint);
-                canvas.drawRect(x-barWidth/2,Math.min(yOpen,yClose),x+barWidth/2,
-                    Math.max(Math.min(yOpen,yClose)+dp(1.5f),Math.max(yOpen,yClose)),paint);
+                paint.setAlpha(projected?185:255);
+                paint.setStrokeWidth(dp(1.3f));
+                canvas.drawRect(x-barWidth*.49f,Math.min(yo,yc),
+                        x+barWidth*.49f,Math.max(Math.min(yo,yc)+dp(1.4f),Math.max(yo,yc)),paint);
+                paint.setStrokeWidth(dp(1.1f));
+                canvas.drawLine(x,yh,x,yl,paint);
                 paint.setAlpha(255);
             }
             float divider=left+pitch*hist;
-            paint.setColor(Color.rgb(131,153,182));
-            paint.setStrokeWidth(dp(1.2f));
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setColor(Color.rgb(127,153,183));
+            paint.setStrokeWidth(dp(1.3f));
             canvas.drawLine(divider,top,divider,top+ch,paint);
-            paint.setColor(Color.rgb(214,223,238));
-            paint.setTextSize(dp(11));
-            boolean imageOnly=result.report.startsWith("SCREENSHOT");
-            canvas.drawText(imageOnly?"Screenshot candle candidates":"OHLCV history",left,height-dp(11),paint);
-            if(future.length==0)canvas.drawText("No scenario",Math.max(left,width-dp(145)),height-dp(11),paint);
-            else canvas.drawText(imageOnly?"Visual sketch + alternatives":"Forecast + test error range",Math.min(divider+dp(4),width-dp(178)),height-dp(11),paint);
+            float footerY=height-dp(9);
+            textAt(canvas,image?"Approx. image candles":"Historical OHLCV",left,footerY,
+                    Color.rgb(196,211,230),10);
+            if(future.length==0){
+                textAt(canvas,"No projected candles",Math.max(left,width-dp(123)),footerY,
+                        Color.rgb(196,211,230),10);
+            }else{
+                textAt(canvas,image?"What-if only":"Tested estimate",
+                        Math.max(divider+dp(6),width-dp(98)),footerY,
+                        Color.rgb(196,211,230),10);
+            }
         }
     }
 }
