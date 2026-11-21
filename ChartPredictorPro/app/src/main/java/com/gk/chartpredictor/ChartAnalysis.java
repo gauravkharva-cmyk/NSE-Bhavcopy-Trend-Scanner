@@ -16,12 +16,21 @@ public final class ChartAnalysis {
         public final Candle[] actual, projected;
         public final String report;
         public final double[] lowBand, highBand;
+        public final Candle[][] scenarioPaths;
+        public final String[] scenarioNames;
+        public final boolean manuallyCalibrated;
         Result(Candle[] actual,Candle[] projected,String report) {
-            this(actual,projected,report,null,null);
+            this(actual,projected,report,null,null,null,null,false);
         }
         Result(Candle[] actual,Candle[] projected,String report,double[] lowBand,double[] highBand) {
+            this(actual,projected,report,lowBand,highBand,null,null,false);
+        }
+        Result(Candle[] actual,Candle[] projected,String report,double[] lowBand,double[] highBand,
+               Candle[][] scenarioPaths,String[] scenarioNames,boolean manuallyCalibrated) {
             this.actual=actual;this.projected=projected;this.report=report;
             this.lowBand=lowBand;this.highBand=highBand;
+            this.scenarioPaths=scenarioPaths;this.scenarioNames=scenarioNames;
+            this.manuallyCalibrated=manuallyCalibrated;
         }
     }
     private static double clamp(double x,double min,double max){return Math.max(min,Math.min(max,x));}
