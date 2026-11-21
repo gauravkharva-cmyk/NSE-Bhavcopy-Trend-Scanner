@@ -229,6 +229,12 @@ public class MainActivity extends Activity {
                 uploaded=null;
                 originalUploaded=null;
                 croppedToPlot=false;
+                manualCalibration=null;
+                lastAnalysis=null;
+                calibrationButton.setVisibility(View.GONE);
+                calibrationStatus.setVisibility(View.GONE);
+                scenarioSelector.setVisibility(View.GONE);
+                scenarioTitle.setVisibility(View.GONE);
                 cropButton.setVisibility(View.GONE);
                 preview.setImageDrawable(null);
                 resultChart.setVisibility(View.GONE);
@@ -249,6 +255,12 @@ public class MainActivity extends Activity {
                 csvBytes=null;
                 originalUploaded=uploaded;
                 croppedToPlot=false;
+                manualCalibration=null;
+                lastAnalysis=null;
+                calibrationButton.setVisibility(View.GONE);
+                calibrationStatus.setVisibility(View.GONE);
+                scenarioSelector.setVisibility(View.GONE);
+                scenarioTitle.setVisibility(View.GONE);
                 cropButton.setVisibility(View.VISIBLE);
                 preview.setImageBitmap(uploaded);
                 LinearLayout.LayoutParams previewParams=(LinearLayout.LayoutParams)preview.getLayoutParams();
@@ -266,12 +278,37 @@ public class MainActivity extends Activity {
         ChartCropEditor.show(this,originalUploaded,cropped->{
             uploaded=cropped;
             croppedToPlot=true;
+            manualCalibration=null;
+            lastAnalysis=null;
+            calibrationButton.setVisibility(View.VISIBLE);
+            calibrationStatus.setVisibility(View.VISIBLE);
+            calibrationStatus.setText("Price scale not calibrated: screenshot levels are relative.");
+            scenarioSelector.setVisibility(View.GONE);
+            scenarioTitle.setVisibility(View.GONE);
             preview.setImageBitmap(cropped);
             LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)preview.getLayoutParams();
             lp.height=dp(310);
             preview.setLayoutParams(lp);
-            output.setText("Selected chart area is ready. Tap ANALYZE CHART. Touch the image to crop again.");
+            output.setText("Chart cropped. For approximate price levels, tap CALIBRATE PRICE AXIS and place two guides on chart prices. Then tap ANALYZE CHART. Touch preview to crop again.");
             resultChart.setVisibility(View.GONE);
+        });
+    }
+    private void openPriceCalibration(){
+        if(uploaded==null||!croppedToPlot){
+            output.setText("Crop to the candle chart first, then set two known price-axis guides.");
+            if(originalUploaded!=null)openCropEditor();
+            return;
+        }
+        PriceCalibrationEditor.show(this,uploaded,manualCalibration,cal->{
+            manualCalibration=cal;
+            calibrationStatus.setVisibility(View.VISIBLE);
+            calibrationStatus.setText(String.format(java.util.Locale.US,
+                    "Manual scale: upper %.2f at %.0f%%, lower %.2f at %.0f%% (approximate image-derived prices)",
+                    cal.upperPrice,100*cal.upperFraction,cal.lowerPrice,100*cal.lowerFraction));
+            resultChart.setVisibility(View.GONE);
+            scenarioSelector.setVisibility(View.GONE);
+            scenarioTitle.setVisibility(View.GONE);
+            output.setText("Two-point calibration saved. Tap ANALYZE CHART for estimated price levels. The screenshot replay remains unvalidated.");
         });
     }
     private void analyze(){
@@ -293,25 +330,40 @@ public class MainActivity extends Activity {
         final Bitmap img=uploaded;
         final byte[] file=csvBytes;
         final boolean imageGuess=screenshotGuess.isChecked();
+        final ImagePriceCalibration.Calibration savedCalibration=manualCalibration;
         analysisRunning=true;
         output.setText(file==null?"Reading cropped screenshot shapes and drawing experimental, UNVALIDATED scenarios...":"Calculating "+targetCount+"-candle scenarios and evaluating error on later chronological price candles...");
         resultChart.setVisibility(View.GONE);
         new Thread(()->{
             try{
-                ChartAnalysis.Result r=file==null?
+                ChartAnalysis.Result raw=file==null?
                         ChartAnalysis.fromImage(img,targetCount,frame,imageGuess):
                         ChartAnalysis.fromCsv(new java.io.ByteArrayInputStream(file),targetCount,frame);
+                ChartAnalysis.Result r=file==null&&savedCalibration!=null?
+                        ImagePriceCalibration.apply(raw,savedCalibration,img.getWidth(),img.getHeight()):raw;
                 runOnUiThread(()->{
                     analysisRunning=false;
+                    lastAnalysis=r;
                     output.setText(r.report);
                     resultChart.setResult(r);
+                    if(r.scenarioPaths!=null&&r.scenarioPaths.length>=3){
+                        scenarioTitle.setVisibility(View.VISIBLE);
+                        scenarioSelector.setVisibility(View.VISIBLE);
+                        scenarioSelector.setSelection(1);
+                        resultChart.setScenario(1);
+                    }else{
+                        scenarioTitle.setVisibility(View.GONE);
+                        scenarioSelector.setVisibility(View.GONE);
+                    }
                     resultChart.setVisibility(View.VISIBLE);
                 });
             }catch(Exception e){
                 final String message=e.getMessage();
                 runOnUiThread(()->{
                     analysisRunning=false;
-                    output.setText("Analysis unavailable: "+message+"\n\nTry a tighter screenshot crop or import a chronological OHLCV CSV with sufficient history.");
+                    output.setText("Analysis unavailable: "+message+"\n\nCheck calibration guides, recrop the screenshot, or import chronological OHLCV CSV.");
+                    scenarioSelector.setVisibility(View.GONE);
+                    scenarioTitle.setVisibility(View.GONE);
                     resultChart.setVisibility(View.GONE);
                 });
             }
