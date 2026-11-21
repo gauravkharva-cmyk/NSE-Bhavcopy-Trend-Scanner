@@ -177,12 +177,21 @@ public final class ScreenshotScenario {
         String tilt=cumulative>noise*.8?"UPWARD VISUAL TILT":
                     cumulative<-noise*.8?"DOWNWARD VISUAL TILT":"MIXED / FLAT";
         report.append("Method: nearest historical screenshot-shape analogs (top ")
-              .append(best.length).append("), with recent visual momentum.\\n");
+              .append(best.length).append("), with recent visual momentum.\n");
         report.append("Earlier matching sequences: ").append(ends.size())
-              .append(". No independent price or forecast-skill validation.\\n");
+              .append(". No independent price or forecast-skill validation.\n");
         if(longest<horizon){
-            report.append("Not enough earlier observed candles for the full horizon; later bars use a labeled fallback.\\n");
+            report.append("Not enough earlier observed candles for the full horizon; later bars use a labeled fallback.\n");
         }
+        double support=Double.POSITIVE_INFINITY,resistance=Double.NEGATIVE_INFINITY;
+        int window=Math.min(20,filtered.size());
+        for(int i=filtered.size()-window;i<filtered.size();i++){
+            support=Math.min(support,filtered.get(i).low);
+            resistance=Math.max(resistance,filtered.get(i).high);
+        }
+        report.append(String.format(Locale.US,
+                "RELATIVE PIXEL LEVELS ONLY — S: %.1f, last: %.1f, R: %.1f\\n",
+                support,closes[n-1],resistance));
         report.append("VISUAL TILT: ").append(tilt).append("\n");
         report.append("Displayed next ").append(horizon).append(" candles: conditional illustrative guess ONLY.\n");
         report.append("Blue range: illustrative image-coordinate alternative levels, NOT a probability interval.\n\n");
