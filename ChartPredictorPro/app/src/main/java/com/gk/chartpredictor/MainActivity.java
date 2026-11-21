@@ -28,6 +28,7 @@ public class MainActivity extends Activity {
     private String selectedTimeframe="5 min";
     private ForecastChart resultChart;
     private boolean analysisRunning=false;
+    private CheckBox screenshotGuess;
 
     private int dp(float x){ return (int)(x*getResources().getDisplayMetrics().density+0.5f); }
     private GradientDrawable shape(int color,int radius){
@@ -79,7 +80,7 @@ public class MainActivity extends Activity {
         header.setTypeface(null,1);
         body.addView(header);
         gap(7);
-        body.addView(txt("V6 · Screenshot quality check · OHLCV forecasting · pattern atlas",13,muted));
+        body.addView(txt("V7 · Screenshot chart scenarios · OHLCV forecasting · pattern atlas",13,muted));
         gap(22);
 
         body.addView(txt("1  ·  UPLOAD YOUR CANDLESTICK CHART",15,fg));
@@ -118,7 +119,7 @@ public class MainActivity extends Activity {
         csvHelp.setBackground(shape(Color.rgb(36,54,81),13));
         body.addView(csvHelp);
         csvHelp.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
-            .setTitle("OHLCV candle data — required for price forecasts")
+            .setTitle("OHLCV candle data — for price-based forecasts")
             .setMessage("Export candle history for ONE instrument from your trading/data platform. The file must have columns Open, High, Low, Close and preferably Volume.\n\nExample:\nOpen,High,Low,Close,Volume\n240.20,242.10,239.80,241.50,12500\n241.50,244.00,240.60,243.20,13200\n\nPut the OLDEST candles first. Choose the same timeframe in this app as the CSV candles actually represent. Do not mix timeframes, strikes, split-adjustment conventions or instruments.\n\nAim for 200+ contiguous candles. This is an uncertainty-aware research model, not a guaranteed trade signal.")
             .setPositiveButton("Close",null).show());
         gap(21);
@@ -135,6 +136,17 @@ public class MainActivity extends Activity {
         timeframe=spin(new String[]{"1 min","3 min","5 min","15 min","30 min","1 hour","4 hours","Daily","Weekly"});
         timeframe.setSelection(2);
         body.addView(timeframe);
+        gap(18);
+        body.addView(txt("4  ·  SCREENSHOT-ONLY SCENARIO",15,fg));
+        gap(9);
+        screenshotGuess=new CheckBox(this);
+        screenshotGuess.setText("Show experimental next-candle visual guess");
+        screenshotGuess.setTextSize(15);
+        screenshotGuess.setTextColor(Color.WHITE);
+        screenshotGuess.setButtonTintList(android.content.res.ColorStateList.valueOf(green));
+        screenshotGuess.setChecked(true);
+        body.addView(screenshotGuess);
+        body.addView(txt("This is NOT a validated prediction or market probability. It draws a shape-based possible continuation, with alternative up/down ranges. Turn this off to show detected history only.",13,muted));
         gap(20);
 
         TextView analyze=button("ANALYZE CHART");
@@ -142,7 +154,7 @@ public class MainActivity extends Activity {
         analyze.setOnClickListener(v->analyze());
         gap(18);
 
-        output=txt("For a forecast: import chronological OHLCV CSV, select candle count and timeframe, and tap ANALYZE. Screenshots are used only for approximate visual extraction, not a calibrated prediction.",14,muted);
+        output=txt("Upload a screenshot, crop the candle chart and select your timeframe. Experimental screenshot guessing is available, clearly marked as an untested visual sketch. For data-based forecasting, import OHLCV CSV.",14,muted);
         output.setPadding(dp(16),dp(16),dp(16),dp(16));
         output.setBackground(shape(panel,13));
         body.addView(output);
@@ -154,7 +166,7 @@ public class MainActivity extends Activity {
         body.addView(resultChart,new LinearLayout.LayoutParams(-1,dp(310)));
         gap(14);
 
-        body.addView(txt("4  ·  OFFLINE PATTERN REFERENCE",15,fg));
+        body.addView(txt("5  ·  OFFLINE PATTERN REFERENCE",15,fg));
         gap(9);
         TextView atlas=button("EXPLORE 24 HIGH-RES PATTERN EXAMPLES");
         body.addView(atlas);
@@ -162,7 +174,7 @@ public class MainActivity extends Activity {
         gap(13);
         body.addView(txt("All pattern illustrations are original and synthetic. Learn how setups look before using them on actual OHLCV charts.",13,muted));
         gap(22);
-        body.addView(txt("Advanced forecasts require historical OHLCV CSV. Screenshot-only mode traces visible candles but does not invent price predictions. Offline ensemble methods compare errors against a no-change baseline using chronological tests. No forecast guarantees profits.",12,muted));
+        body.addView(txt("Screenshot scenarios are illustrative extrapolations from approximate image pixels, NOT tested forecasts. For price-based indicators, model backtesting, and empirical uncertainty, import OHLCV CSV. No forecast guarantees profits.",12,muted));
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
@@ -241,13 +253,14 @@ public class MainActivity extends Activity {
         final String frame=selectedTimeframe;
         final Bitmap img=uploaded;
         final byte[] file=csvBytes;
+        final boolean imageGuess=screenshotGuess.isChecked();
         analysisRunning=true;
-        output.setText("Calculating "+targetCount+"-candle scenarios and evaluating model error against later historical candles. This may take a moment...");
+        output.setText(file==null?"Reading cropped screenshot shapes and drawing experimental, UNVALIDATED scenarios...":"Calculating "+targetCount+"-candle scenarios and evaluating error on later chronological price candles...");
         resultChart.setVisibility(View.GONE);
         new Thread(()->{
             try{
                 ChartAnalysis.Result r=file==null?
-                        ChartAnalysis.fromImage(img,targetCount,frame):
+                        ChartAnalysis.fromImage(img,targetCount,frame,imageGuess):
                         ChartAnalysis.fromCsv(new java.io.ByteArrayInputStream(file),targetCount,frame);
                 runOnUiThread(()->{
                     analysisRunning=false;
@@ -348,9 +361,10 @@ public class MainActivity extends Activity {
             canvas.drawLine(divider,top,divider,top+ch,paint);
             paint.setColor(Color.rgb(214,223,238));
             paint.setTextSize(dp(11));
-            canvas.drawText(hasBands?"OHLCV history":"Approx. screenshot candles",left,height-dp(11),paint);
-            if(future.length==0)canvas.drawText("No forecast — CSV required",Math.max(left,width-dp(175)),height-dp(11),paint);
-            else canvas.drawText(hasBands?"Estimate + error band":"Unvalidated image sketch",Math.min(divider+dp(4),width-dp(160)),height-dp(11),paint);
+            boolean imageOnly=result.report.startsWith("SCREENSHOT");
+            canvas.drawText(imageOnly?"Screenshot candle candidates":"OHLCV history",left,height-dp(11),paint);
+            if(future.length==0)canvas.drawText("No scenario",Math.max(left,width-dp(145)),height-dp(11),paint);
+            else canvas.drawText(imageOnly?"Visual sketch + alternatives":"Forecast + test error range",Math.min(divider+dp(4),width-dp(178)),height-dp(11),paint);
         }
     }
 }
