@@ -175,7 +175,7 @@ public class MainActivity extends Activity {
         output.setBackground(shape(panel,13));
         body.addView(output);
         gap(15);
-        scenarioTitle=txt("SAMPLE MATCHED HISTORICAL REPLAY",14,fg);
+        scenarioTitle=txt("SELECT HISTORICAL REPLAY · NOT A PROBABILITY",14,fg);
         scenarioTitle.setVisibility(View.GONE);
         body.addView(scenarioTitle);
         gap(6);
@@ -373,8 +373,10 @@ public class MainActivity extends Activity {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private ChartAnalysis.Result result;
         private boolean showLevels=true;
+        private int scenarioIndex=1;
         ForecastChart(){ super(MainActivity.this); }
-        void setResult(ChartAnalysis.Result r){result=r;invalidate();}
+        void setResult(ChartAnalysis.Result r){result=r;scenarioIndex=1;invalidate();}
+        void setScenario(int i){scenarioIndex=Math.max(0,Math.min(2,i));invalidate();}
         void setShowLevels(boolean v){showLevels=v;invalidate();}
         private String level(double v, boolean image){
             if(!Double.isFinite(v))return "N/A";
@@ -397,11 +399,17 @@ public class MainActivity extends Activity {
             if(result==null||result.actual==null||result.actual.length==0)return;
             float width=getWidth(),height=getHeight();
             boolean image=result.report.startsWith("SCREENSHOT");
+            boolean relative=image&&!result.manuallyCalibrated;
             float left=showLevels?dp(91):dp(15),top=dp(26);
             float right=width-dp(15);
             float ch=height-dp(showLevels?156:59)-top;
             float cw=Math.max(1,right-left);
-            ChartAnalysis.Candle[] actual=result.actual,future=result.projected;
+            ChartAnalysis.Candle[] actual=result.actual;
+            ChartAnalysis.Candle[] future=result.projected;
+            if(result.scenarioPaths!=null && result.scenarioPaths.length>=3
+                    && result.scenarioPaths[scenarioIndex]!=null){
+                future=result.scenarioPaths[scenarioIndex];
+            }
             int hist=Math.min(actual.length,Math.max(18,45-future.length/2));
             int total=hist+future.length;
             if(total<=0)return;
@@ -428,7 +436,7 @@ public class MainActivity extends Activity {
                 float y=top+(ch/4)*i;
                 paint.setColor(Color.rgb(51,72,96));
                 canvas.drawLine(left,y,right,y,paint);
-                if(showLevels)textAt(canvas,level(highValue-i*range/4,image),
+                if(showLevels)textAt(canvas,level(highValue-i*range/4,relative),
                         dp(4),y+dp(4),Color.rgb(148,169,195),10);
             }
             float pitch=cw/total;
@@ -485,28 +493,54 @@ public class MainActivity extends Activity {
                     // Separate band below chart prevents overlapping candle bodies.
                 }
                 float baseline=height-dp(112);
-                textAt(canvas,image?"RELATIVE LEVELS (NOT PRICES)":"PRICE LEVELS",left,baseline,
+                textAt(canvas,relative?"RELATIVE LEVELS — NOT PRICES":
+                         image?"MANUAL PRICE ESTIMATES":"PRICE LEVELS · CSV",left,baseline,
                         Color.rgb(188,208,232),11);
-                textAt(canvas,"R "+level(resistance,image),left,baseline+dp(21),
+                textAt(canvas,"R "+level(resistance,relative),left,baseline+dp(21),
                         colors[0],11);
                 float secondX=left+Math.min(dp(140),cw*.42f);
-                textAt(canvas,"LAST "+level(last,image),secondX,baseline+dp(21),
+                textAt(canvas,"LAST "+level(last,relative),secondX,baseline+dp(21),
                         colors[1],11);
-                textAt(canvas,"S "+level(support,image),left,baseline+dp(42),
+                textAt(canvas,"S "+level(support,relative),left,baseline+dp(42),
                         colors[2],11);
                 if(future.length>0){
                     ChartAnalysis.Candle endpoint=future[future.length-1];
-                    textAt(canvas,"END "+level(endpoint.close,image),secondX,baseline+dp(42),
+                    textAt(canvas,"END "+level(endpoint.close,relative),secondX,baseline+dp(42),
                             Color.rgb(123,182,247),11);
                     if(hasBands){
-                        textAt(canvas,"UP "+level(result.highBand[future.length-1],image),
+                        textAt(canvas,"UP "+level(result.highBand[future.length-1],relative),
                                 left,baseline+dp(64),Color.rgb(123,182,247),11);
-                        textAt(canvas,"DN "+level(result.lowBand[future.length-1],image),
+                        textAt(canvas,"DN "+level(result.lowBand[future.length-1],relative),
                                 secondX,baseline+dp(64),Color.rgb(123,182,247),11);
                     }
                 }
             }
 
+            // Paint the two unselected historical replay paths as thin lines,
+            // so all three possible shape continuations are visible together.
+            if(result.scenarioPaths!=null && result.scenarioPaths.length>=3){
+                int[] scenarioColors={
+                    Color.rgb(245,113,119),Color.rgb(86,215,168),Color.rgb(160,155,250)};
+                for(int k=0;k<3;k++){
+                    if(k==scenarioIndex)continue;
+                    ChartAnalysis.Candle[] path=result.scenarioPaths[k];
+                    if(path==null||path.length!=future.length)continue;
+                    Path trace=new Path();
+                    float x0=left+pitch*(hist-.5f);
+                    trace.moveTo(x0,valueY(actual[actual.length-1].close,highValue,range,top,ch));
+                    for(int i=0;i<path.length;i++){
+                        float x1=left+pitch*(hist+i+.5f);
+                        float yy=valueY(path[i].close,highValue,range,top,ch);
+                        trace.lineTo(x1,yy);
+                    }
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setColor(scenarioColors[k]);
+                    paint.setAlpha(165);
+                    paint.setStrokeWidth(dp(1.4f));
+                    canvas.drawPath(trace,paint);
+                    paint.setAlpha(255);
+                }
+            }
             for(int i=0;i<total;i++){
                 boolean projected=i>=hist;
                 ChartAnalysis.Candle c=projected?future[i-hist]:actual[actual.length-hist+i];
@@ -537,7 +571,7 @@ public class MainActivity extends Activity {
                 textAt(canvas,"No projected candles",Math.max(left,width-dp(123)),footerY,
                         Color.rgb(196,211,230),10);
             }else{
-                textAt(canvas,image?"What-if only":"Tested estimate",
+                textAt(canvas,image?"Historical replay":"Model estimate",
                         Math.max(divider+dp(6),width-dp(98)),footerY,
                         Color.rgb(196,211,230),10);
             }
