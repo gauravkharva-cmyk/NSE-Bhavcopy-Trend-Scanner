@@ -2,204 +2,213 @@ package com.gk.chartpredictor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * Experimental sketch based on pixels, NOT a statistical market price forecast.
- * Everything here is in relative pixel-height units. There is no price axis,
- * volume series, timestamp, complete/incomplete-candle flag, or backtest.
+ * Experimental image-shape replay, not a trained or validated price forecast.
+ * Replays real OBSERVED following candles of earlier similar visible sequences,
+ * preserving candle bodies, real-body gaps, and wick variation. All values
+ * remain relative image coordinates unless two user-provided axis points are
+ * calibrated. Scenario labels express ordering, not probabilities.
  */
 public final class ScreenshotScenario {
     private ScreenshotScenario(){}
-    private static double median(double[] data,int n){
-        if(n<=0)return 0;
-        double[] a=Arrays.copyOf(data,n);
-        Arrays.sort(a);
-        int m=n/2;
-        return n%2==0?(a[m-1]+a[m])*.5:a[m];
+
+    private static final class Match {
+        int end;
+        double score;
+        double scale;
+        ChartAnalysis.Candle[] path;
+        double finalMove;
+        Match(int end,double score,double scale){
+            this.end=end;this.score=score;this.scale=scale;
+        }
     }
-    private static double clamp(double v,double a,double b){
-        return Math.min(b,Math.max(a,v));
+
+    private static double median(double[] a,int length){
+        if(length<=0)return 0;
+        double[] copy=Arrays.copyOf(a,length);
+        Arrays.sort(copy);
+        int m=length/2;
+        return length%2==0?(copy[m-1]+copy[m])*.5:copy[m];
     }
+    private static double clamp(double x,double min,double max){
+        return Math.max(min,Math.min(max,x));
+    }
+    private static double normalizedRange(ChartAnalysis.Candle c){
+        return Math.max(.15,c.high-c.low);
+    }
+    private static double candleBody(ChartAnalysis.Candle c){
+        return c.close-c.open;
+    }
+    private static double upperWick(ChartAnalysis.Candle c){
+        return Math.max(0,c.high-Math.max(c.open,c.close));
+    }
+    private static double lowerWick(ChartAnalysis.Candle c){
+        return Math.max(0,Math.min(c.open,c.close)-c.low);
+    }
+    private static double scaleAt(List<ChartAnalysis.Candle> data,int end,int bars){
+        int from=Math.max(0,end-bars+1);
+        double[] vals=new double[end-from+1];
+        for(int i=from;i<=end;i++)vals[i-from]=normalizedRange(data.get(i));
+        return Math.max(.7,median(vals,vals.length));
+    }
+    private static double distance(List<ChartAnalysis.Candle> c,int end,int recent,int window,double recentScale,double pastScale){
+        double total=0;
+        for(int j=0;j<window;j++){
+            ChartAnalysis.Candle now=c.get(recent-j),old=c.get(end-j);
+            double scaleN=Math.max(.7,recentScale),scaleP=Math.max(.7,pastScale);
+            double dBody=clamp(candleBody(now)/scaleN,-3,3)-clamp(candleBody(old)/scaleP,-3,3);
+            double dRange=clamp(normalizedRange(now)/scaleN,0,4)-clamp(normalizedRange(old)/scaleP,0,4);
+            double dUpper=clamp(upperWick(now)/scaleN,0,3)-clamp(upperWick(old)/scaleP,0,3);
+            double dLower=clamp(lowerWick(now)/scaleN,0,3)-clamp(lowerWick(old)/scaleP,0,3);
+            double nowGap=0,oldGap=0;
+            if(recent-j>0)nowGap=(now.close-c.get(recent-j-1).close)/scaleN;
+            if(end-j>0)oldGap=(old.close-c.get(end-j-1).close)/scaleP;
+            double dClose=clamp(nowGap,-3,3)-clamp(oldGap,-3,3);
+            double weight=j<4?1.25:0.75;
+            total+=weight*(1.30*dBody*dBody+.6*dRange*dRange+.33*dUpper*dUpper+
+                           .33*dLower*dLower+.8*dClose*dClose);
+        }
+        return total;
+    }
+    private static ChartAnalysis.Candle[] replay(List<ChartAnalysis.Candle> data,Match match,int horizon,double fromClose){
+        ChartAnalysis.Candle[] projection=new ChartAnalysis.Candle[horizon];
+        double previous=fromClose;
+        for(int h=1;h<=horizon;h++){
+            ChartAnalysis.Candle hist=data.get(match.end+h);
+            ChartAnalysis.Candle before=data.get(match.end+h-1);
+            // Replay the actual historical next candle with its body/wicks,
+            // scaled uniformly to recent visual candle height.
+            double open=previous+(hist.open-before.close)*match.scale;
+            double close=open+(hist.close-hist.open)*match.scale;
+            double high=Math.max(open,close)+upperWick(hist)*match.scale;
+            double low=Math.min(open,close)-lowerWick(hist)*match.scale;
+            projection[h-1]=new ChartAnalysis.Candle(open,high,low,close,Double.NaN);
+            previous=close;
+        }
+        return projection;
+    }
+
     public static ChartAnalysis.Result build(
-        List<ChartAnalysis.Candle> candidates,
-        int rejectedColorRegions,int horizon,String timeframe,boolean showGuess
-    ){
+            List<ChartAnalysis.Candle> candidates,int rejectedColorRegions,
+            int horizon,String timeframe,boolean showGuess){
+
+        if(horizon<1||horizon>40)throw new IllegalArgumentException("Invalid horizon");
         double[] ranges=new double[candidates.size()],bodies=new double[candidates.size()];
         for(int i=0;i<candidates.size();i++){
-            ChartAnalysis.Candle c=candidates.get(i);
-            ranges[i]=c.high-c.low;
-            bodies[i]=Math.abs(c.close-c.open);
+            ranges[i]=normalizedRange(candidates.get(i));
+            bodies[i]=Math.abs(candleBody(candidates.get(i)));
         }
         double medRange=Math.max(1.0,median(ranges,ranges.length));
         double medBody=Math.max(.6,median(bodies,bodies.length));
-        List<ChartAnalysis.Candle> filtered=new ArrayList<>();
-        int suspect=0;
-        // Reject extreme bars of a different scale: most often mistaken axes,
-        // drawings, indicators, grid markers or joined candle bodies. These
-        // could also be genuine rare market bars: don't present them as verified.
-        double rangeCap=Math.max(26.0,medRange*3.8);
-        double bodyCap=Math.max(20.0,medBody*4.8);
-        for(ChartAnalysis.Candle c:candidates){
-            if(c.high-c.low>rangeCap || Math.abs(c.close-c.open)>bodyCap){
-                suspect++;
-            }else{
-                filtered.add(c);
-            }
-        }
-        int n=filtered.size();
-        if(n>90)filtered=new ArrayList<>(filtered.subList(n-90,n));
-        n=filtered.size();
-        ChartAnalysis.Candle[] actual=filtered.toArray(new ChartAnalysis.Candle[0]);
-        StringBuilder report=new StringBuilder();
-        report.append("SCREENSHOT WHAT-IF ANALYSIS — EXPERIMENTAL\n");
-        report.append("Timeframe chosen: ").append(timeframe)
-              .append(" · Requested future candles: ").append(horizon).append("\n");
-        report.append("Approximate candidates: ").append(candidates.size())
-              .append(" · Suspicious oversized bars excluded: ").append(suspect)
-              .append(" · Color regions rejected: ").append(rejectedColorRegions).append("\n");
-        report.append("Usable visual candle candidates: ").append(n).append("\n\n");
-        if(n<25){
-            report.append("INSUFFICIENT RELIABLE IMAGE DATA. No future candles will be drawn. ")
-                  .append("Crop closer to the price chart or import OHLCV CSV. ");
-            report.append("The image contains too few usable candle candidates to produce even a useful visual what-if sketch.");
-            return new ChartAnalysis.Result(actual,new ChartAnalysis.Candle[0],report.toString());
-        }
-        report.append("VISUAL CANDLE DETECTION IS APPROXIMATE. ");
-        report.append("Outlier bars are excluded from the reconstruction, not asserted to be invalid trades. ");
-        report.append("No actual price, volume, order-flow, trained AI model or measured prediction skill is available.\n\n");
-        if(!showGuess){
-            report.append("Experimental screenshot scenario is OFF. Turn it on to see a purely illustrative next-candle sketch; ");
-            report.append("alternatively import OHLCV CSV for model evaluation and error estimates.");
-            return new ChartAnalysis.Result(actual,new ChartAnalysis.Candle[0],report.toString());
-        }
-        // Historical visual analogs: compare the last 9 normalized candle changes
-        // to earlier subsequences, then examine observed FOLLOWING candle shapes.
-        // This is a resemblance experiment, not a backtested market predictor.
-        double[] closes=new double[n],delta=new double[n];
-        for(int i=0;i<n;i++)closes[i]=filtered.get(i).close;
-        for(int i=1;i<n;i++)delta[i]=closes[i]-closes[i-1];
-        final int lookback=9;
-        double[] recent=Arrays.copyOfRange(delta,Math.max(1,n-20),n);
-        double driftMedian=median(recent,recent.length);
-        double[] absDeviation=new double[recent.length];
-        for(int i=0;i<recent.length;i++)absDeviation[i]=Math.abs(recent[i]-driftMedian);
-        double noise=Math.max(.9,Math.max(.28*medRange,1.4826*median(absDeviation,absDeviation.length)));
-        double trendShort=(closes[n-1]-closes[n-7])/6.0;
-        double trendMid=(closes[n-1]-closes[n-16])/15.0;
-        double slope=clamp(.4*driftMedian+.4*trendShort+.2*trendMid,-.9*noise,.9*noise);
+        double rangeCap=Math.max(26,medRange*3.8);
+        double bodyCap=Math.max(20,medBody*4.8);
 
-        // A complete analog needs earlier observations after the matching window.
-        // Forecast horizons larger than available history use an explicitly
-        // identified fallback, never silently fabricate a supposed analog.
-        int longest=Math.min(horizon,Math.max(0,n-lookback-5));
-        ArrayList<Integer> ends=new ArrayList<>();
-        ArrayList<Double> distances=new ArrayList<>();
-        for(int end=lookback+1;end<=n-1-longest;end++){
-            double d=0;
-            double pastNoise=0;
-            for(int j=0;j<lookback;j++)pastNoise+=Math.abs(delta[end-j]);
-            pastNoise=Math.max(1.0,pastNoise/lookback);
-            for(int j=0;j<lookback;j++){
-                double target=clamp(delta[n-1-j]/noise,-4,4);
-                double candidate=clamp(delta[end-j]/pastNoise,-4,4);
-                double err=target-candidate;
-                d+=err*err*(j<4?1.25:0.7);
+        ArrayList<ChartAnalysis.Candle> filtered=new ArrayList<>();
+        int suspect=0;
+        for(ChartAnalysis.Candle c:candidates){
+            if(normalizedRange(c)>rangeCap||Math.abs(candleBody(c))>bodyCap)suspect++;
+            else filtered.add(c);
+        }
+        if(filtered.size()>120)filtered=new ArrayList<>(filtered.subList(filtered.size()-120,filtered.size()));
+        final int n=filtered.size();
+        ChartAnalysis.Candle[] history=filtered.toArray(new ChartAnalysis.Candle[0]);
+        StringBuilder report=new StringBuilder();
+        report.append("SCREENSHOT WHAT-IF ANALYSIS — EXPERIMENTAL\n")
+              .append("Timeframe chosen: ").append(timeframe).append(" · Future candles requested: ").append(horizon).append("\n")
+              .append("Approximate candidates: ").append(candidates.size())
+              .append(" · Oversized candidates excluded: ").append(suspect)
+              .append(" · Color regions rejected: ").append(rejectedColorRegions).append("\n")
+              .append("Usable approximate candles: ").append(n).append("\n\n");
+
+        if(n<25){
+            report.append("INSUFFICIENT VISUAL DATA. Fewer than 25 candidates after filtering. ")
+                  .append("No projected candles can be justified; recrop the candle plot or import OHLCV CSV.");
+            return new ChartAnalysis.Result(history,new ChartAnalysis.Candle[0],report.toString());
+        }
+        if(!showGuess){
+            report.append("Screenshot scenario is OFF. Only the approximate historical shape is displayed. ")
+                  .append("Import OHLCV CSV for actual-price indicators and evaluated forecasts.");
+            return new ChartAnalysis.Result(history,new ChartAnalysis.Candle[0],report.toString());
+        }
+
+        final int lookback=9;
+        if(n<lookback+horizon+8){
+            report.append("INSUFFICIENT MATCHED HISTORY for ").append(horizon)
+                  .append(" full future candles. Reduce the horizon or use more history. ")
+                  .append("The app will not repeat or fabricate missing candlesticks.");
+            return new ChartAnalysis.Result(history,new ChartAnalysis.Candle[0],report.toString());
+        }
+
+        double nowScale=scaleAt(filtered,n-1,16);
+        ArrayList<Match> matches=new ArrayList<>();
+        int latestEnd=n-horizon-1;
+        for(int end=lookback;end<=latestEnd;end++){
+            double historicalScale=scaleAt(filtered,end,lookback+3);
+            double d=distance(filtered,end,n-1,lookback,nowScale,historicalScale);
+            if(Double.isFinite(d)){
+                matches.add(new Match(end,d,clamp(nowScale/historicalScale,.38,2.30)));
             }
-            ends.add(end);
-            distances.add(d);
         }
-        int[] best=new int[Math.min(3,ends.size())];
-        double[] bestScore=new double[best.length];
-        Arrays.fill(best,-1);
-        Arrays.fill(bestScore,Double.POSITIVE_INFINITY);
-        for(int i=0;i<distances.size();i++){
-            double distance=distances.get(i);
-            for(int k=0;k<best.length;k++){
-                if(distance<bestScore[k]){
-                    for(int j=best.length-1;j>k;j--){
-                        bestScore[j]=bestScore[j-1];
-                        best[j]=best[j-1];
-                    }
-                    bestScore[k]=distance;
-                    best[k]=ends.get(i);
-                    break;
-                }
+        Collections.sort(matches,Comparator.comparingDouble(m->m.score));
+
+        // Avoid near-duplicate overlapping analog windows in the shortlist.
+        ArrayList<Match> shortlist=new ArrayList<>();
+        int separation=Math.max(2,Math.min(6,horizon/5));
+        for(Match m:matches){
+            boolean near=false;
+            for(Match prior:shortlist){
+                if(Math.abs(prior.end-m.end)<separation){near=true;break;}
             }
+            if(!near)shortlist.add(m);
+            if(shortlist.size()>=12)break;
         }
-        double[] weights=new double[best.length];
-        double sumW=0;
-        for(int j=0;j<best.length;j++){
-            if(best[j]>=0){
-                weights[j]=1/(2.0+bestScore[j]);
-                sumW+=weights[j];
-            }
+        if(shortlist.size()<3){
+            report.append("INSUFFICIENT DISTINCT HISTORICAL ANALOGS to show three scenarios. ")
+                  .append("Try a larger chart or import OHLCV data.");
+            return new ChartAnalysis.Result(history,new ChartAnalysis.Candle[0],report.toString());
         }
-        if(sumW>0)for(int j=0;j<weights.length;j++)weights[j]/=sumW;
-        // Near-term path = observed analog developments mixed with a small
-        // momentum component. Do not force every next candle to be the same.
-        ChartAnalysis.Candle[] projection=new ChartAnalysis.Candle[horizon];
-        double[] upper=new double[horizon],lower=new double[horizon];
-        double previous=closes[n-1],lastMove=delta[n-1];
-        double cumulative=0;
-        for(int h=1;h<=horizon;h++){
-            double meanAnalog=0;
-            if(h<=longest&&sumW>0){
-                for(int j=0;j<best.length;j++)if(best[j]>=0){
-                    int idx=best[j]+h;
-                    // Scale analog movement to present pixel-candle volatility.
-                    double pastNoise=0;
-                    for(int k=0;k<lookback;k++)pastNoise+=Math.abs(delta[best[j]-k]);
-                    pastNoise=Math.max(1,pastNoise/lookback);
-                    double scaled=clamp(delta[idx]*(noise/pastNoise),-2.1*noise,2.1*noise);
-                    meanAnalog+=weights[j]*scaled;
-                }
-            }
-            double candidate=(sumW>0&&h<=longest)?(.72*meanAnalog+.28*slope):(.45*slope+.15*lastMove);
-            candidate=clamp(candidate,-1.35*noise,1.35*noise);
-            // Accumulate the relative path; no exponential shrinking to zero.
-            double next=previous+candidate;
-            if(!Double.isFinite(next))next=previous;
-            // Image pixel coordinates are arbitrary, so negative relative
-            // levels are allowed and should never be labeled market prices.
-            double range=noise*(1.4*Math.sqrt(h)+.25*h);
-            lower[h-1]=next-range;
-            upper[h-1]=next+range;
-            double wick=Math.max(.28*medRange,.30*noise);
-            projection[h-1]=new ChartAnalysis.Candle(previous,
-                Math.max(previous,next)+wick,
-                Math.min(previous,next)-wick,next,Double.NaN);
-            lastMove=candidate;
-            previous=next;
-            cumulative+=candidate;
+
+        double last=filtered.get(n-1).close;
+        for(Match m:shortlist){
+            m.path=replay(filtered,m,horizon,last);
+            m.finalMove=m.path[horizon-1].close-last;
         }
-        String tilt=cumulative>noise*.8?"UPWARD VISUAL TILT":
-                    cumulative<-noise*.8?"DOWNWARD VISUAL TILT":"MIXED / FLAT";
-        report.append("Method: nearest historical screenshot-shape analogs (top ")
-              .append(best.length).append("), with recent visual momentum.\n");
-        report.append("Earlier matching sequences: ").append(ends.size())
-              .append(". No independent price or forecast-skill validation.\n");
-        if(longest<horizon){
-            report.append("Not enough earlier observed candles for the full horizon; later bars use a labeled fallback.\n");
+        Collections.sort(shortlist,Comparator.comparingDouble(m->m.finalMove));
+        Match lower=shortlist.get(0);
+        Match middle=shortlist.get(shortlist.size()/2);
+        Match upper=shortlist.get(shortlist.size()-1);
+        ChartAnalysis.Candle[][] paths={lower.path,middle.path,upper.path};
+        String[] labels={"LOWER historical replay","MIDDLE historical replay","UPPER historical replay"};
+        double[] lowBand=new double[horizon],highBand=new double[horizon];
+        for(int i=0;i<horizon;i++){
+            lowBand[i]=Math.min(paths[0][i].low,Math.min(paths[1][i].low,paths[2][i].low));
+            highBand[i]=Math.max(paths[0][i].high,Math.max(paths[1][i].high,paths[2][i].high));
         }
+        report.append("METHOD: Three distinct complete candle-sequence replays chosen from ")
+              .append(shortlist.size()).append(" similar historical image-pattern matches.\n")
+              .append("Paths preserve each matched candle's body, wick and gap variations. ")
+              .append("They are ordered by relative ending movement, NOT by predicted probability.\n")
+              .append(String.format(Locale.US,
+                "Relative end levels — lower: %.1f · middle: %.1f · upper: %.1f\n",
+                paths[0][horizon-1].close,paths[1][horizon-1].close,paths[2][horizon-1].close))
+              .append("Blue area covers the three pictured historical replays; it is NOT a calibrated confidence interval.\n");
+
         double support=Double.POSITIVE_INFINITY,resistance=Double.NEGATIVE_INFINITY;
-        int window=Math.min(20,filtered.size());
-        for(int i=filtered.size()-window;i<filtered.size();i++){
+        for(int i=n-Math.min(20,n);i<n;i++){
             support=Math.min(support,filtered.get(i).low);
             resistance=Math.max(resistance,filtered.get(i).high);
         }
-        report.append(String.format(Locale.US,
-                "RELATIVE PIXEL LEVELS ONLY — S: %.1f, last: %.1f, R: %.1f\n",
-                support,closes[n-1],resistance));
-        report.append("VISUAL TILT: ").append(tilt).append("\n");
-        report.append("Displayed next ").append(horizon).append(" candles: conditional illustrative guess ONLY.\n");
-        report.append("Blue range: illustrative image-coordinate alternative levels, NOT a probability interval.\n\n");
-        report.append("THIS IS NOT A VERIFIED FORECAST. It is a shape-based extrapolation in relative pixel coordinates, ")
-              .append("and may differ greatly from actual market movements. ")
-              .append("Even a visually convincing pattern is not proof of predictive accuracy. ")
-              .append("Do not use this screenshot sketch alone to enter an option/futures trade.\n\n");
-        report.append("For real indicator values, price targets and holdout error metrics, import at least ~200 chronological OHLCV candles from the same market/timeframe.");
-        return new ChartAnalysis.Result(actual,projection,report.toString(),lower,upper);
+        report.append(String.format(Locale.US,"Relative image levels (not prices) — S %.1f · last %.1f · R %.1f\n\n",
+                support,last,resistance))
+              .append("WARNING: Screenshot candle extraction and historical analog matching are experimental. ")
+              .append("No true OHLCV prices, timestamps, trading volumes or independent forecast validation were available. ")
+              .append("Do not treat a displayed replay as a buy/sell recommendation. ")
+              .append("Use manual two-point price calibration for approximate price labels or import OHLCV CSV for price-based analysis.");
+        return new ChartAnalysis.Result(history,paths[1],report.toString(),lowBand,highBand,paths,labels,false);
     }
 }
