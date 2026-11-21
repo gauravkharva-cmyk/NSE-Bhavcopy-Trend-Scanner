@@ -271,6 +271,14 @@ public final class ChartAnalysis {
             out.append("MACD histogram: ").append(fmt(histogram)).append(" | ATR14: ").append(fmt(a)).append("\n");
             out.append("Bollinger (20,2) upper/lower: ").append(fmt(mean+2*sd)).append(" / ").append(fmt(mean-2*sd)).append("\n");
             out.append("Last close: ").append(fmt(last.close)).append("\n");
+            double rollingSupport=Double.POSITIVE_INFINITY,rollingResistance=Double.NEGATIVE_INFINITY;
+            for(int i=Math.max(0,n-20);i<n;i++){
+                rollingSupport=Math.min(rollingSupport,data.get(i).low);
+                rollingResistance=Math.max(rollingResistance,data.get(i).high);
+            }
+            out.append("Last 20-candle support: ").append(fmt(rollingSupport))
+               .append(" | resistance: ").append(fmt(rollingResistance)).append("\n");
+            out.append("Levels use the actual OHLCV price scale. Breakouts/targets are not automatically validated signals.\n");
             out.append("\nRSI, EMA, MACD, ATR and Bollinger Bands are descriptive features, not proof of price predictability.");
         }else{
             out.append("\nOnly relative pixel heights were extracted. Exact OHLC prices, volume, RSI, MACD, VWAP, and price targets are unavailable from this screenshot.\n");
