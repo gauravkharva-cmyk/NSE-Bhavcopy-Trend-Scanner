@@ -128,6 +128,9 @@ public final class ChartAnalysis {
      * We therefore visualize candidate candles but do NOT generate projected candles.
      */
     public static Result fromImage(Bitmap image,int count,String tf)throws Exception{
+        return fromImage(image,count,tf,false);
+    }
+    public static Result fromImage(Bitmap image,int count,String tf,boolean screenshotGuess)throws Exception{
         if(image==null)throw new Exception("No screenshot selected.");
         int w=720;
         int h=Math.max(210,Math.round(image.getHeight()*(720f/image.getWidth())));
@@ -202,22 +205,7 @@ public final class ChartAnalysis {
         if(candles.size()>100){
             candles=new ArrayList<>(candles.subList(candles.size()-100,candles.size()));
         }
-        Candle[] history=candles.toArray(new Candle[0]);
-        StringBuilder message=new StringBuilder();
-        message.append("SCREENSHOT EXTRACTION — NOT A PRICE FORECAST\n");
-        message.append("Timeframe selected: ").append(tf).append("\n");
-        message.append("Requested forecast horizon: ").append(count).append(" candles\n");
-        message.append("Approximate candle candidates: ").append(used).append(" (").append(skipped).append(" ambiguous color regions rejected)\n\n");
-        if(used<50){
-            message.append("LOW DATA QUALITY: fewer than 50 candidate candles extracted. Chart patterns such as engulfing, inside bars or double bottoms are NOT verified.\n\n");
-        }else{
-            message.append("Only shape/color candidates are displayed. Similar colors, moving averages, wicks, overlays or incomplete bars may produce extraction errors.\n\n");
-        }
-        message.append("A screenshot does not provide independently verified OHLCV prices or a sufficiently reliable backtesting dataset. ");
-        message.append("The application is intentionally WITHHOLDING the next-").append(count).append("-candle forecast instead of drawing invented candles.\n\n");
-        message.append("To run the adaptive walk-forward ensemble, tap IMPORT OHLCV CSV, containing Open, High, Low, Close and preferably Volume for the SAME instrument and ").append(tf).append(" timeframe. ");
-        message.append("Include approximately 200 or more chronologically ordered candles (oldest first). The CSV forecast will show tested error and a range; it cannot guarantee future prices.");
-        return new Result(history,new Candle[0],message.toString());
+        return ScreenshotScenario.build(candles,skipped,count,tf,screenshotGuess);
     }
     private static Result calculate(List<Candle> data,int count,String tf,boolean real){
         int n=data.size();Candle last=data.get(n-1),prev=data.get(n-2);
