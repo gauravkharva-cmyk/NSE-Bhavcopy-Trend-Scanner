@@ -30,6 +30,12 @@ public class MainActivity extends Activity {
     private boolean analysisRunning=false;
     private CheckBox screenshotGuess;
     private CheckBox levelsToggle;
+    private TextView calibrationButton;
+    private TextView calibrationStatus;
+    private ImagePriceCalibration.Calibration manualCalibration;
+    private Spinner scenarioSelector;
+    private TextView scenarioTitle;
+    private ChartAnalysis.Result lastAnalysis;
 
     private int dp(float x){ return (int)(x*getResources().getDisplayMetrics().density+0.5f); }
     private GradientDrawable shape(int color,int radius){
@@ -81,7 +87,7 @@ public class MainActivity extends Activity {
         header.setTypeface(null,1);
         body.addView(header);
         gap(7);
-        body.addView(txt("V8 · Analog scenarios · Support / Resistance levels · OHLCV ensemble",13,muted));
+        body.addView(txt("V9 · Three candle replays · Manual price calibration · OHLCV ensemble",13,muted));
         gap(22);
 
         body.addView(txt("1  ·  UPLOAD YOUR CANDLESTICK CHART",15,fg));
@@ -106,6 +112,15 @@ public class MainActivity extends Activity {
         cropButton.setVisibility(View.GONE);
         body.addView(cropButton);
         cropButton.setOnClickListener(v->openCropEditor());
+        gap(10);
+        calibrationButton=button("CALIBRATE PRICE AXIS (2 KNOWN PRICES)");
+        calibrationButton.setBackground(shape(Color.rgb(49,85,133),13));
+        calibrationButton.setVisibility(View.GONE);
+        body.addView(calibrationButton);
+        calibrationButton.setOnClickListener(v->openPriceCalibration());
+        calibrationStatus=txt("Calibration not set — screenshot levels are relative pixels.",12,muted);
+        calibrationStatus.setVisibility(View.GONE);
+        body.addView(calibrationStatus);
         gap(10);
         TextView importCsv=button("IMPORT OHLCV CSV (REAL INDICATORS)");
         body.addView(importCsv);
@@ -141,13 +156,13 @@ public class MainActivity extends Activity {
         body.addView(txt("4  ·  SCREENSHOT-ONLY SCENARIO",15,fg));
         gap(9);
         screenshotGuess=new CheckBox(this);
-        screenshotGuess.setText("Show experimental next-candle visual guess");
+        screenshotGuess.setText("Show 3 experimental historical candle-replay scenarios");
         screenshotGuess.setTextSize(15);
         screenshotGuess.setTextColor(Color.WHITE);
         screenshotGuess.setButtonTintList(android.content.res.ColorStateList.valueOf(green));
         screenshotGuess.setChecked(true);
         body.addView(screenshotGuess);
-        body.addView(txt("This is NOT a validated prediction or market probability. It draws a shape-based possible continuation, with alternative up/down ranges. Turn this off to show detected history only.",13,muted));
+        body.addView(txt("Three separate replay paths — lower, middle and upper — selected from matched older candles. This is NOT a validated prediction or probability. Turn off to show the approximate historical chart only.",13,muted));
         gap(20);
 
         TextView analyze=button("ANALYZE CHART");
@@ -155,10 +170,24 @@ public class MainActivity extends Activity {
         analyze.setOnClickListener(v->analyze());
         gap(18);
 
-        output=txt("Upload a screenshot, crop the candle chart and select your timeframe. Experimental screenshot guessing is available, clearly marked as an untested visual sketch. For data-based forecasting, import OHLCV CSV.",14,muted);
+        output=txt("Upload and crop a candlestick chart. Optionally calibrate two known price-axis levels, then select 1/3/5/10/20 future candles. Screenshot replays are illustrative, not reliable price predictions. Import OHLCV CSV for tested numerical methods.",14,muted);
         output.setPadding(dp(16),dp(16),dp(16),dp(16));
         output.setBackground(shape(panel,13));
         body.addView(output);
+        gap(15);
+        scenarioTitle=txt("SAMPLE MATCHED HISTORICAL REPLAY",14,fg);
+        scenarioTitle.setVisibility(View.GONE);
+        body.addView(scenarioTitle);
+        gap(6);
+        scenarioSelector=spin(new String[]{"LOWER historical replay","MIDDLE historical replay","UPPER historical replay"});
+        scenarioSelector.setVisibility(View.GONE);
+        body.addView(scenarioSelector);
+        scenarioSelector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+            @Override public void onItemSelected(AdapterView<?> parent,View view,int position,long id){
+                if(resultChart!=null)resultChart.setScenario(position);
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent){}
+        });
         gap(15);
 
         resultChart=new ForecastChart();
