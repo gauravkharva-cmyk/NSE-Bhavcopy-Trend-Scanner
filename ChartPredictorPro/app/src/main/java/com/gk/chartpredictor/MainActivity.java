@@ -164,7 +164,7 @@ public class MainActivity extends Activity {
         resultChart=new ForecastChart();
         resultChart.setBackground(shape(panel,14));
         resultChart.setVisibility(View.GONE);
-        body.addView(resultChart,new LinearLayout.LayoutParams(-1,dp(410)));
+        body.addView(resultChart,new LinearLayout.LayoutParams(-1,dp(455)));
         gap(9);
         levelsToggle=new CheckBox(this);
         levelsToggle.setText("Display support / resistance and level scale");
@@ -318,7 +318,7 @@ public class MainActivity extends Activity {
             boolean image=result.report.startsWith("SCREENSHOT");
             float left=showLevels?dp(91):dp(15),top=dp(26);
             float right=width-dp(15);
-            float ch=height-dp(showLevels?128:59)-top;
+            float ch=height-dp(showLevels?156:59)-top;
             float cw=Math.max(1,right-left);
             ChartAnalysis.Candle[] actual=result.actual,future=result.projected;
             int hist=Math.min(actual.length,Math.max(18,45-future.length/2));
@@ -403,7 +403,7 @@ public class MainActivity extends Activity {
                     paint.setAlpha(255);
                     // Separate band below chart prevents overlapping candle bodies.
                 }
-                float baseline=height-dp(77);
+                float baseline=height-dp(112);
                 textAt(canvas,image?"RELATIVE LEVELS (NOT PRICES)":"PRICE LEVELS",left,baseline,
                         Color.rgb(188,208,232),11);
                 textAt(canvas,"R "+level(resistance,image),left,baseline+dp(21),
@@ -417,6 +417,12 @@ public class MainActivity extends Activity {
                     ChartAnalysis.Candle endpoint=future[future.length-1];
                     textAt(canvas,"END "+level(endpoint.close,image),secondX,baseline+dp(42),
                             Color.rgb(123,182,247),11);
+                    if(hasBands){
+                        textAt(canvas,"UP "+level(result.highBand[future.length-1],image),
+                                left,baseline+dp(64),Color.rgb(123,182,247),11);
+                        textAt(canvas,"DN "+level(result.lowBand[future.length-1],image),
+                                secondX,baseline+dp(64),Color.rgb(123,182,247),11);
+                    }
                 }
             }
 
