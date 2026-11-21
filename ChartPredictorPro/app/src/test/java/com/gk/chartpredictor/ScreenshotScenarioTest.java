@@ -24,6 +24,13 @@ public class ScreenshotScenarioTest {
         assertEquals(5,result.projected.length);
         assertTrue(result.report.contains("OVERSIZED")||result.report.contains("oversized"));
         assertTrue(result.report.contains("NOT A VERIFIED FORECAST"));
+        assertTrue(result.report.contains("nearest historical"));
+        assertTrue(result.report.contains("RELATIVE PIXEL LEVELS"));
+        double firstMove=result.projected[0].close-result.projected[0].open;
+        boolean varied=false;
+        for(int i=1;i<result.projected.length;i++)
+            if(Math.abs(result.projected[i].close-result.projected[i].open-firstMove)>1.e-5) varied=true;
+        assertTrue("Analog scenario should not repeat the same candle increment",varied);
         assertEquals(5,result.lowBand.length);
         for(int i=0;i<5;i++){
             assertTrue(result.lowBand[i]<=result.highBand[i]);
