@@ -190,7 +190,7 @@ public final class ScreenshotScenario {
             resistance=Math.max(resistance,filtered.get(i).high);
         }
         report.append(String.format(Locale.US,
-                "RELATIVE PIXEL LEVELS ONLY — S: %.1f, last: %.1f, R: %.1f\\n",
+                "RELATIVE PIXEL LEVELS ONLY — S: %.1f, last: %.1f, R: %.1f\n",
                 support,closes[n-1],resistance));
         report.append("VISUAL TILT: ").append(tilt).append("\n");
         report.append("Displayed next ").append(horizon).append(" candles: conditional illustrative guess ONLY.\n");
